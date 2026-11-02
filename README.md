@@ -14,7 +14,8 @@
 
 <p align="center">
   <a href="https://pcore.ai">官网</a> ·
-  <a href="https://github.com/mszlu521/PcoreAI-Releases/releases">下载最新版</a> ·
+  <a href="https://h01bmlq5jz.feishu.cn/file/R2Libsp0Co8ye2xL6bJcsVEBnff">国内下载（飞书）</a> ·
+  <a href="https://github.com/mszlu521/PcoreAI-Releases/releases">GitHub 下载</a> ·
   <a href="https://pcore.ai">模型服务</a>
 </p>
 
@@ -143,7 +144,14 @@ PcoreAI 面向个人使用时保持轻量，同时为需要追溯的工作保留
 
 ### Windows
 
-从 [Releases](https://github.com/mszlu521/PcoreAI-Releases/releases) 下载最新的 `PcoreAI-*-win-x64.exe`，运行安装程序即可。安装后会创建开始菜单和桌面入口，后续运行更高版本安装包可以直接升级。
+选择适合的下载入口，获取 `PcoreAI-*-win-x64.exe` 后运行安装向导：
+
+| 下载入口 | 使用方式 |
+| --- | --- |
+| [国内下载 · 飞书](https://h01bmlq5jz.feishu.cn/file/R2Libsp0Co8ye2xL6bJcsVEBnff) | 打开文件分享页后点击下载 |
+| [GitHub Releases](https://github.com/mszlu521/PcoreAI-Releases/releases) | 选择版本，在 Assets 中下载安装包及校验文件 |
+
+安装后会创建开始菜单和桌面入口，后续运行更高版本安装包可以直接升级。
 
 当前已构建版本：**PcoreAI 1.0.2（Windows x64）**。可下载版本及更新说明以 Releases 页面为准。
 
@@ -165,6 +173,7 @@ PcoreAI 是本地优先的桌面应用：配置、项目、会话、知识库、
 ## 下载与发布
 
 - [官网](https://pcore.ai)
+- [国内下载 · 飞书](https://h01bmlq5jz.feishu.cn/file/R2Libsp0Co8ye2xL6bJcsVEBnff)
 - [GitHub Releases](https://github.com/mszlu521/PcoreAI-Releases/releases)
 - 安装包同时提供 SHA256 校验文件
 
