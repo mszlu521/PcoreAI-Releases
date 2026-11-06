@@ -1,0 +1,154 @@
+name: Build macOS from private source
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Immutable commit SHA from the private PcoreAI repository
+        required: true
+        type: string
+      publish:
+        description: Attach verified macOS installers to the existing version release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-private-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      PCOREAI_EXPECTED_MAC_ARCH: ${{ matrix.arch }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate source revision and credentials
+        env:
+          SOURCE_KEY: ${{ secrets.PCOREAI_SOURCE_SSH_KEY }}
+          LOG_KEY: ${{ secrets.PCOREAI_BUILD_LOG_KEY }}
+        shell: bash
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'An exact lowercase commit SHA is required.'; exit 1; }
+          [[ -n "$SOURCE_KEY" && -n "$LOG_KEY" ]] || { echo 'Source read key or diagnostic encryption key is missing.'; exit 1; }
+      - name: Read public build helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: public-build
+          persist-credentials: false
+      - name: Read private source with a repository-only read key
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: mszlu521/pcoreAI
+          ref: ${{ inputs.source_sha }}
+          ssh-key: ${{ secrets.PCOREAI_SOURCE_SSH_KEY }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: private-source
+      - name: Prepare Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        working-directory: private-source
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/pcoreai-install.log" 2>&1 || { echo 'Dependency installation failed; encrypted diagnostics will be saved.'; exit 1; }
+      - name: Run unit tests
+        working-directory: private-source
+        shell: bash
+        run: |
+          npm test > "$RUNNER_TEMP/pcoreai-tests.log" 2>&1 || { echo 'Unit tests failed; encrypted diagnostics will be saved.'; exit 1; }
+          echo 'Unit tests passed.'
+      - name: Build locally signed macOS DMG and ZIP without paid credentials
+        working-directory: private-source
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          npm run dist:mac -- "--$TARGET_ARCH" --config.mac.identity=- --config.mac.notarize=false > "$RUNNER_TEMP/pcoreai-package.log" 2>&1 || { echo 'macOS packaging failed; encrypted diagnostics will be saved.'; exit 1; }
+          echo 'macOS packaging completed with an ad hoc signature; Apple notarization is not included.'
+      - name: Verify packaged startup, architecture, commands and native terminal
+        working-directory: private-source
+        shell: bash
+        run: |
+          npm run verify:release > "$RUNNER_TEMP/pcoreai-verify.log" 2>&1 || { echo 'Packaged application verification failed; encrypted diagnostics will be saved.'; exit 1; }
+          echo 'Packaged application, architecture, local commands and native terminal verified.'
+      - name: Verify file preview workflow
+        working-directory: private-source
+        env:
+          PCOREAI_SMOKE_FIXTURE: file-explorer-layout
+        shell: bash
+        run: |
+          node tests/electron-smoke.cjs > "$RUNNER_TEMP/pcoreai-files.log" 2>&1 || { echo 'File preview verification failed; encrypted diagnostics will be saved.'; exit 1; }
+          echo 'File explorer collapse, preview and draft preservation verified.'
+      - name: Verify update cache and restart workflow
+        working-directory: private-source
+        shell: bash
+        run: |
+          npm run smoke:electron:updates > "$RUNNER_TEMP/pcoreai-updates.log" 2>&1 || { echo 'Update workflow verification failed; encrypted diagnostics will be saved.'; exit 1; }
+          echo 'Update workflow verified.'
+      - name: Collect installers and byte-level checksums
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: node public-build/.github/scripts/macos-artifacts.cjs collect
+      - name: Save verified installers
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pcoreai-macos-${{ matrix.arch }}
+          path: output/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Encrypt diagnostic logs on failure
+        if: failure()
+        env:
+          PCOREAI_BUILD_LOG_KEY: ${{ secrets.PCOREAI_BUILD_LOG_KEY }}
+        run: node public-build/.github/scripts/build-diagnostics.cjs encrypt
+      - name: Save encrypted diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pcoreai-macos-${{ matrix.arch }}-encrypted-diagnostics
+          path: diagnostics/*.enc
+          retention-days: 1
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish verified macOS installers
+    needs: build
+    if: inputs.publish && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: pcoreai-macos-*
+          path: output
+          merge-multiple: true
+      - name: Validate both architectures and publish only installers and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: node .github/scripts/macos-artifacts.cjs publish
