@@ -81,10 +81,12 @@ jobs:
           npm ci --no-audit --no-fund > "$RUNNER_TEMP/pcoreai-install.log" 2>&1 || { echo 'Install failed; encrypted diagnostics follow.'; exit 1; }
       - name: Configure Chromium sandbox on Linux runner
         if: runner.os == 'Linux'
+        working-directory: private-source
         shell: bash
         run: |
-          sudo chown root:root private-source/node_modules/electron/dist/chrome-sandbox
-          sudo chmod 4755 private-source/node_modules/electron/dist/chrome-sandbox
+          node -e "require('electron')" >> "$RUNNER_TEMP/pcoreai-install.log" 2>&1
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - name: Source-only candidate feature gates
         working-directory: private-source
         shell: bash
