@@ -7,6 +7,16 @@ on:
         description: Exact private-source commit (no packaging or publishing)
         required: true
         type: string
+      platform:
+        description: Candidate platform (rerun only the failed platform)
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - macos-x64
+          - macos-arm64
+          - ubuntu-x64
 
 permissions:
   contents: read
@@ -22,13 +32,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        include:
-          - os: macos-15-intel
-            target: macos-x64
-          - os: macos-15
-            target: macos-arm64
-          - os: ubuntu-latest
-            target: ubuntu-x64
+        include: ${{ fromJSON(inputs.platform == 'macos-x64' && '[{"os":"macos-15-intel","target":"macos-x64"}]' || inputs.platform == 'macos-arm64' && '[{"os":"macos-15","target":"macos-arm64"}]' || inputs.platform == 'ubuntu-x64' && '[{"os":"ubuntu-latest","target":"ubuntu-x64"}]' || '[{"os":"macos-15-intel","target":"macos-x64"},{"os":"macos-15","target":"macos-arm64"},{"os":"ubuntu-latest","target":"ubuntu-x64"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     env:
