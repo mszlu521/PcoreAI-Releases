@@ -1,0 +1,100 @@
+name: Validate private candidate features
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact private-source commit (no packaging or publishing)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-features-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.actor == github.repository_owner
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - os: macos-15-intel
+            target: macos-x64
+          - os: macos-15
+            target: macos-arm64
+          - os: ubuntu-latest
+            target: ubuntu-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate revision and private-source credentials
+        env:
+          SOURCE_KEY: ${{ secrets.PCOREAI_SOURCE_SSH_KEY }}
+          LOG_KEY: ${{ secrets.PCOREAI_CANDIDATE_LOG_KEY }}
+        shell: bash
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Exact commit SHA required.'; exit 1; }
+          [[ -n "$SOURCE_KEY" && -n "$LOG_KEY" ]] || { echo 'Read key or encrypted-log key missing.'; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: public-build
+          persist-credentials: false
+      - name: Read private source at fixed revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mszlu521/pcoreAI
+          ref: ${{ inputs.source_sha }}
+          ssh-key: ${{ secrets.PCOREAI_SOURCE_SSH_KEY }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: private-source
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Canonical temporary paths
+        shell: bash
+        run: |
+          candidate_tmp="$(cd "$RUNNER_TEMP" && pwd -P)/pcoreai-tmp"
+          mkdir -p "$candidate_tmp"
+          echo "TMPDIR=$candidate_tmp" >> "$GITHUB_ENV"
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq > "$RUNNER_TEMP/pcoreai-system.log" 2>&1
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64 libgbm1 >> "$RUNNER_TEMP/pcoreai-system.log" 2>&1
+      - name: Install private dependencies
+        working-directory: private-source
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/pcoreai-install.log" 2>&1 || { echo 'Install failed; encrypted diagnostics follow.'; exit 1; }
+      - name: Source-only candidate feature gates
+        working-directory: private-source
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == 'Linux' ]]; then
+            xvfb-run -a npm run validate:candidate > "$RUNNER_TEMP/pcoreai-validation.log" 2>&1
+          else
+            npm run validate:candidate > "$RUNNER_TEMP/pcoreai-validation.log" 2>&1
+          fi
+          echo 'Source candidate gates completed. No installer, update or real-model test ran.'
+      - name: Encrypt private diagnostics
+        if: always()
+        env:
+          PCOREAI_BUILD_LOG_KEY: ${{ secrets.PCOREAI_CANDIDATE_LOG_KEY }}
+        run: node public-build/.github/scripts/build-diagnostics.cjs encrypt
+      - name: Save only encrypted logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-${{ matrix.target }}-encrypted-logs
+          path: diagnostics/*.enc
+          if-no-files-found: ignore
+          retention-days: 2
