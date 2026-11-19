@@ -104,6 +104,14 @@ jobs:
         run: |
           node tests/electron-smoke.cjs > "$RUNNER_TEMP/pcoreai-files.log" 2>&1 || { echo 'File preview verification failed; encrypted diagnostics will be saved.'; exit 1; }
           echo 'File explorer collapse, preview and draft preservation verified.'
+      - name: Verify artifact history and batch review
+        working-directory: private-source
+        shell: bash
+        run: |
+          if [[ -f tests/electron-artifact-review-smoke.cjs ]]; then
+            npm run smoke:electron:artifact-review > "$RUNNER_TEMP/pcoreai-review.log" 2>&1 || { echo 'Artifact review verification failed; encrypted diagnostics will be saved.'; exit 1; }
+            echo 'Artifact history, batch review and restart verified.'
+          fi
       - name: Verify update cache and restart workflow
         working-directory: private-source
         shell: bash
